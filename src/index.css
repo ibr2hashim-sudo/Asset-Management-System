@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Tajawal', sans-serif;
+  background-color: #f9fafb;
+  color: #111827;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,22 +1,29 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# نظام إدارة الصيانة والمعدات (CMMS)
 
-# Run and deploy your AI Studio app
+نظام متكامل وخفيف لإدارة الأصول والمعدات وطلبات الصيانة الدورية والطارئة، مع دعم الحفظ السحابي عبر Google Drive و Firebase.
 
-This contains everything you need to run your app locally.
+## مميزات النظام
+- **لوحة تحكم تفاعلية (Dashboard)**: ملخص سريع لحالات المعدات وأحدث الطلبات والفحوصات المستحقة.
+- **إدارة طلبات الصيانة (Maintenance Orders)**: إنشاء، تعديل، فلترة، ومتابعة الطلبات وتعيين الفنيين.
+- **الصيانة الدورية والوقائية (Tracking)**: جدولة الفحوصات (أسبوعي، شهري، سنوي) ومتابعة الاستحقاقات.
+- **سجل الأصول والمعدات (Assets)**: تسجيل وتصنيف جميع المعدات وأكوادها ومواقعها داخل المنشأة.
+- **النسخ الاحتياطي السحابي (Google Drive & Firebase)**: إمكانية حفظ نسخة احتياطية من البيانات مباشرة في حساب Google Drive أو مزامنتها.
 
-View your app in AI Studio: https://ai.studio/apps/e03803c4-fb45-41b8-84bf-43553b411196
+---
 
-## Run Locally
+## طريقة الرفع والنشر على Netlify (خطوة بخطوة)
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+### الطريقة الأولى: الرفع المباشر (Drag and Drop)
+1. قم بـ **فك الضغط (Extract / Unzip)** عن ملف الـ ZIP المحمل من استوديو الذكاء الاصطناعي (AI Studio) لكي يظهر لك مجلد المشروع كاملًا.
+2. افتح موقع [Netlify](https://app.netlify.com/) وسجل دخولك.
+3. اذهب إلى قائمة **Add new site** ثم اختر **Deploy manually**.
+4. اسحب وأفلت **مجلد المشروع الكامل** (الذي يحتوي على `package.json` و `netlify.toml` و `src/`) داخل المربع المخصص في Netlify.
+5. سيقوم Netlify تلقائيًا بالتعرف على إعدادات `netlify.toml` وتنفيذ أمر البناء `npm run build` ونشر مجلد `dist` بنجاح!
 
-
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+### الطريقة الثانية: الربط مع GitHub (الموصى بها والتلقائية)
+1. قم برفع ملفات المشروع إلى مستودع GitHub الخاص بك.
+2. في Netlify، اختر **Add new site** ثم **Import an existing project** واختر GitHub.
+3. حدد المستودع الخاص بك، وسيتم تعبئة الإعدادات تلقائياً من `netlify.toml`:
+   - **Build command**: `npm run build`
+   - **Publish directory**: `dist`
+4. اضغط على **Deploy site** وسيتم النشر بنجاح!

@@ -1,8 +1,6 @@
 {
-  "name": "Asset Tracker",
-  "description": "تطبيق لتتبع الأصول الثابتة والمنقولة وتوثيق حركتها بين الأقسام المختلفة مع لوحة تحكم وسجل تاريخي مفصل.",
+  "name": "نظام إدارة العهد والصيانة الطبية",
+  "description": "نظام متكامل لإدارة عهد الأجهزة الطبية في أقسام المستشفى المختلفة، وبلاغات الأعطال الفورية والصيانة الدورية المجدولة.",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
