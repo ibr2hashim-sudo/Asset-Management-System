@@ -1,0 +1,5 @@
+Department,Type,Asset ID,Device Name,Model,Serial Number,Quantity,Status,Notes
+Cardiology,Imaging,CATHC-15,Cath Lab Machine,Model-A,SN-1234,1,Active,Good condition
+Radiology,Imaging,XRAY-01,Digital X-Ray,Model-X,SN-5678,1,Active,Needs maintenance
+ICU,Life Support,VENT-22,Ventilator,Model-V,SN-9012,2,Active,
+Emergency,Life Support,DEFIB-05,Defibrillator,Model-D,SN-3456,1,Inactive,Needs battery replacement

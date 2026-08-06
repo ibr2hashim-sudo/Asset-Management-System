@@ -1,0 +1,8 @@
+{
+  "name": "Asset Tracker",
+  "description": "تطبيق لتتبع الأصول الثابتة والمنقولة وتوثيق حركتها بين الأقسام المختلفة مع لوحة تحكم وسجل تاريخي مفصل.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
