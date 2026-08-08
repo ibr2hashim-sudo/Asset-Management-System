@@ -11,6 +11,7 @@ interface LayoutProps {
   onLogout: () => void;
   dataToBackup: any;
   onResetFactory: (pass: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
+  onSyncCloud?: () => Promise<{ success: boolean; message: string }>;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -20,13 +21,28 @@ export const Layout: React.FC<LayoutProps> = ({
   user,
   onLogout,
   dataToBackup,
-  onResetFactory
+  onResetFactory,
+  onSyncCloud
 }) => {
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [resetMessage, setResetMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [isResetting, setIsResetting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  const handleSyncCloud = async () => {
+    if (!onSyncCloud || isSyncing) return;
+    setIsSyncing(true);
+    setSyncStatus(null);
+    const res = await onSyncCloud();
+    setSyncStatus(res.message);
+    setIsSyncing(false);
+    setTimeout(() => {
+      setSyncStatus(null);
+    }, 4000);
+  };
 
   const navItems = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: Home, roles: ['admin', 'tech', 'supervisor'] },
@@ -102,6 +118,16 @@ export const Layout: React.FC<LayoutProps> = ({
               )}
 
               <button
+                onClick={handleSyncCloud}
+                disabled={isSyncing}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-bold transition border border-emerald-200 disabled:opacity-50"
+                title="مزامنة البيانات المحلية مع السحابة لتظهر في الأجهزة الأخرى"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{isSyncing ? 'جاري المزامنة...' : 'مزامنة السحابة'}</span>
+              </button>
+
+              <button
                 onClick={() => setIsDriveModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition"
                 title="النسخ الاحتياطي في Google Drive"
@@ -159,6 +185,12 @@ export const Layout: React.FC<LayoutProps> = ({
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {syncStatus && (
+          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-extrabold rounded-2xl flex items-center justify-between animate-fadeIn">
+            <span>{syncStatus}</span>
+            <button onClick={() => setSyncStatus(null)} className="text-emerald-600 hover:text-emerald-900 font-black">✕</button>
+          </div>
+        )}
         {children}
       </main>
 

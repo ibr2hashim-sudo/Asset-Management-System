@@ -59,7 +59,8 @@ export function App() {
     addMaintenanceLog,
     deleteMaintenanceLog,
 
-    // ضبط المصنع
+    // المزامنة وضبط المصنع
+    syncLocalToCloud,
     factoryResetAll
   } = useAppStore();
 
@@ -96,7 +97,9 @@ export function App() {
       setActiveTab={setActiveTab}
       user={user}
       onLogout={handleLogout}
-      onFactoryReset={handleFactoryResetWithLogout}
+      dataToBackup={{ assets, departments, orders, categories, maintenanceLogs, users }}
+      onResetFactory={handleFactoryResetWithLogout}
+      onSyncCloud={syncLocalToCloud}
     >
       {activeTab === 'dashboard' && (
         <Dashboard

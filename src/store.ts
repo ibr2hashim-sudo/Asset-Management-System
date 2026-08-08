@@ -924,6 +924,33 @@ export function useAppStore() {
     return { success: true, message: 'تم مسح جميع بيانات النظام بنجاح وإعادة ضبط المصنع' };
   };
 
+  const syncLocalToCloud = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      for (const d of departments) {
+        await setDoc(doc(db, 'cmms_departments', d.id), sanitizeForFirestore(d), { merge: true });
+      }
+      for (const a of assets) {
+        await setDoc(doc(db, 'cmms_assets', a.id), sanitizeForFirestore(a), { merge: true });
+      }
+      for (const o of orders) {
+        await setDoc(doc(db, 'cmms_orders', o.id), sanitizeForFirestore(o), { merge: true });
+      }
+      for (const c of categories) {
+        await setDoc(doc(db, 'cmms_categories', c.id), sanitizeForFirestore(c), { merge: true });
+      }
+      for (const l of maintenanceLogs) {
+        await setDoc(doc(db, 'cmms_logs', l.id), sanitizeForFirestore(l), { merge: true });
+      }
+      for (const u of users) {
+        await setDoc(doc(db, 'cmms_users', u.id), sanitizeForFirestore(u), { merge: true });
+      }
+      return { success: true, message: `تمت مزامنة جميع البيانات (${assets.length} جهاز، ${departments.length} قسم) مع قاعدة بيانات Firebase بنجاح!` };
+    } catch (err: any) {
+      console.error('Error syncing local to cloud:', err);
+      return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
+    }
+  };
+
   return {
     users,
     departments,
@@ -931,6 +958,7 @@ export function useAppStore() {
     orders,
     categories,
     maintenanceLogs,
+    syncLocalToCloud,
     addUser,
     updateUser,
     deleteUser,
