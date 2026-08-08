@@ -99,61 +99,63 @@ export function useAppStore() {
     localStorage.setItem('cmms_logs', safeStringify(maintenanceLogs));
   }, [maintenanceLogs]);
 
-  // المزامنة الحية والتلقائية مع Cloud SQL PostgreSQL
-  useEffect(() => {
-    const loadFromCloudSql = async () => {
-      try {
-        const res = await fetch('/api/sync/fetch-all');
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const result = await res.json();
-          if (result.success && result.data) {
-            const { departments: d, assets: a, orders: o, categories: c, maintenanceLogs: l, users: u } = result.data;
-            if (u && u.length > 0) setUsers(u);
-            if (d && d.length > 0) setDepartments(d);
-            if (a && a.length > 0) setAssets(a);
-            if (o && o.length > 0) setOrders(o);
-            if (c && c.length > 0) setCategories(c);
-            if (l && l.length > 0) setMaintenanceLogs(l);
+  // المزامنة الحية والتلقائية مع Cloud SQL PostgreSQL عند توفر الخادم
+  const [isBackendAvailable, setIsBackendAvailable] = useState<boolean | null>(null);
 
-            // Push local data if Cloud SQL was empty
-            if ((!a || a.length === 0) && (!d || d.length === 0) && assets.length > 0) {
-              fetch('/api/sync/push-all', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-              }).catch(() => {});
+  useEffect(() => {
+    const checkBackendAndLoad = async () => {
+      try {
+        const healthRes = await fetch('/api/health');
+        const contentType = healthRes.headers.get('content-type') || '';
+        if (healthRes.ok && contentType.includes('application/json')) {
+          setIsBackendAvailable(true);
+          const res = await fetch('/api/sync/fetch-all');
+          if (res.ok) {
+            const result = await res.json();
+            if (result.success && result.data) {
+              const { departments: d, assets: a, orders: o, categories: c, maintenanceLogs: l, users: u } = result.data;
+              if (u && u.length > 0) setUsers(u);
+              if (d && d.length > 0) setDepartments(d);
+              if (a && a.length > 0) setAssets(a);
+              if (o && o.length > 0) setOrders(o);
+              if (c && c.length > 0) setCategories(c);
+              if (l && l.length > 0) setMaintenanceLogs(l);
+
+              // Push local data if Cloud SQL was empty
+              if ((!a || a.length === 0) && (!d || d.length === 0) && assets.length > 0) {
+                fetch('/api/sync/push-all', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
+                }).catch(() => {});
+              }
             }
           }
+        } else {
+          setIsBackendAvailable(false);
         }
       } catch (err) {
-        console.warn('Cloud SQL load unavailable, using local storage.');
+        setIsBackendAvailable(false);
       }
     };
 
-    loadFromCloudSql();
+    checkBackendAndLoad();
   }, []);
 
-  // المزامنة التلقائية مع Cloud SQL عند حدوث تغييرات
+  // المزامنة التلقائية مع Cloud SQL عند حدوث تغييرات (فقط إذا كان خادم API متوفراً)
   useEffect(() => {
+    if (!isBackendAvailable) return;
+
     const timer = setTimeout(() => {
       fetch('/api/sync/push-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-      })
-        .then(async (res) => {
-          const contentType = res.headers.get('content-type') || '';
-          if (!res.ok || !contentType.includes('application/json')) {
-            // Static host or backend unavailable
-            return;
-          }
-        })
-        .catch(() => {});
-    }, 1200);
+      }).catch(() => {});
+    }, 1500);
 
     return () => clearTimeout(timer);
-  }, [departments, assets, orders, categories, maintenanceLogs, users]);
+  }, [departments, assets, orders, categories, maintenanceLogs, users, isBackendAvailable]);
 
   // إدارة المستخدمين
   const addUser = (user: Omit<UserAccount, 'id'>) => {
