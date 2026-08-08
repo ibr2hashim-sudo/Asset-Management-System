@@ -36,12 +36,18 @@ export const Layout: React.FC<LayoutProps> = ({
     if (!onSyncCloud || isSyncing) return;
     setIsSyncing(true);
     setSyncStatus(null);
-    const res = await onSyncCloud();
-    setSyncStatus(res.message);
-    setIsSyncing(false);
-    setTimeout(() => {
-      setSyncStatus(null);
-    }, 4000);
+    try {
+      const res = await onSyncCloud();
+      setSyncStatus(res.message);
+    } catch (err: any) {
+      console.error('Error during cloud sync:', err);
+      setSyncStatus('حدث خطأ غير متوقع أثناء المزامنة: ' + (err?.message || String(err)));
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => {
+        setSyncStatus(null);
+      }, 6000);
+    }
   };
 
   const navItems = [

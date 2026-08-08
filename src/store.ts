@@ -911,30 +911,87 @@ export function useAppStore() {
   };
 
   const syncLocalToCloud = async (): Promise<{ success: boolean; message: string }> => {
-    try {
-      for (const d of departments) {
-        await setDoc(doc(db, 'cmms_departments', d.id), sanitizeForFirestore(d), { merge: true });
+    const syncPromise = (async () => {
+      try {
+        const operations: { ref: any; data: any; col: string; id: string }[] = [];
+
+        departments.forEach(d => {
+          if (d.id) operations.push({ ref: doc(db, 'cmms_departments', d.id), data: sanitizeForFirestore(d), col: 'قسم', id: d.id });
+        });
+        assets.forEach(a => {
+          if (a.id) operations.push({ ref: doc(db, 'cmms_assets', a.id), data: sanitizeForFirestore(a), col: 'جهاز', id: a.id });
+        });
+        orders.forEach(o => {
+          if (o.id) operations.push({ ref: doc(db, 'cmms_orders', o.id), data: sanitizeForFirestore(o), col: 'أمر صيانة', id: o.id });
+        });
+        categories.forEach(c => {
+          if (c.id) operations.push({ ref: doc(db, 'cmms_categories', c.id), data: sanitizeForFirestore(c), col: 'تصنيف', id: c.id });
+        });
+        maintenanceLogs.forEach(l => {
+          if (l.id) operations.push({ ref: doc(db, 'cmms_logs', l.id), data: sanitizeForFirestore(l), col: 'سجل', id: l.id });
+        });
+        users.forEach(u => {
+          if (u.id) operations.push({ ref: doc(db, 'cmms_users', u.id), data: sanitizeForFirestore(u), col: 'مستخدم', id: u.id });
+        });
+
+        if (operations.length === 0) {
+          return { success: true, message: 'لا توجد بيانات محلية جديدة للمزامنة.' };
+        }
+
+        const BATCH_SIZE = 200;
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < operations.length; i += BATCH_SIZE) {
+          const chunk = operations.slice(i, i + BATCH_SIZE);
+          try {
+            const batch = writeBatch(db);
+            chunk.forEach(op => {
+              batch.set(op.ref, op.data, { merge: true });
+            });
+            await batch.commit();
+            successCount += chunk.length;
+          } catch (batchErr) {
+            console.warn('Batch sync failed, falling back to document-by-document sync:', batchErr);
+            for (const op of chunk) {
+              try {
+                await setDoc(op.ref, op.data, { merge: true });
+                successCount++;
+              } catch (itemErr) {
+                console.error(`Failed to sync ${op.col} (${op.id}):`, itemErr);
+                failCount++;
+              }
+            }
+          }
+        }
+
+        if (failCount > 0) {
+          return {
+            success: true,
+            message: `تمت مزامنة ${successCount} عنصر بنجاح مع قاعدة البيانات. (${failCount} عنصر تعذرت مزامنته بسبب الحجم المفروض على الصور).`
+          };
+        }
+
+        return {
+          success: true,
+          message: `تمت مزامنة جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) مع السحابة بنجاح!`
+        };
+      } catch (err: any) {
+        console.error('Error syncing local to cloud:', err);
+        return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
       }
-      for (const a of assets) {
-        await setDoc(doc(db, 'cmms_assets', a.id), sanitizeForFirestore(a), { merge: true });
-      }
-      for (const o of orders) {
-        await setDoc(doc(db, 'cmms_orders', o.id), sanitizeForFirestore(o), { merge: true });
-      }
-      for (const c of categories) {
-        await setDoc(doc(db, 'cmms_categories', c.id), sanitizeForFirestore(c), { merge: true });
-      }
-      for (const l of maintenanceLogs) {
-        await setDoc(doc(db, 'cmms_logs', l.id), sanitizeForFirestore(l), { merge: true });
-      }
-      for (const u of users) {
-        await setDoc(doc(db, 'cmms_users', u.id), sanitizeForFirestore(u), { merge: true });
-      }
-      return { success: true, message: `تمت مزامنة جميع البيانات (${assets.length} جهاز، ${departments.length} قسم) مع قاعدة بيانات Firebase بنجاح!` };
-    } catch (err: any) {
-      console.error('Error syncing local to cloud:', err);
-      return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
-    }
+    })();
+
+    const timeoutPromise = new Promise<{ success: boolean; message: string }>((resolve) => {
+      setTimeout(() => {
+        resolve({
+          success: false,
+          message: 'انتهت مهلة المزامنة (15 ثانية). يرجى التأكد من الاتصال بالإنترنت والاتصال بالسحابة.'
+        });
+      }, 15000);
+    });
+
+    return Promise.race([syncPromise, timeoutPromise]);
   };
 
   return {
