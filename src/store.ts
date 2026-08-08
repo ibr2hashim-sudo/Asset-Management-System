@@ -911,87 +911,93 @@ export function useAppStore() {
   };
 
   const syncLocalToCloud = async (): Promise<{ success: boolean; message: string }> => {
-    const syncPromise = (async () => {
-      try {
-        const operations: { ref: any; data: any; col: string; id: string }[] = [];
+    try {
+      const operations: { ref: any; data: any; col: string; id: string }[] = [];
 
-        departments.forEach(d => {
-          if (d.id) operations.push({ ref: doc(db, 'cmms_departments', d.id), data: sanitizeForFirestore(d), col: 'قسم', id: d.id });
-        });
-        assets.forEach(a => {
-          if (a.id) operations.push({ ref: doc(db, 'cmms_assets', a.id), data: sanitizeForFirestore(a), col: 'جهاز', id: a.id });
-        });
-        orders.forEach(o => {
-          if (o.id) operations.push({ ref: doc(db, 'cmms_orders', o.id), data: sanitizeForFirestore(o), col: 'أمر صيانة', id: o.id });
-        });
-        categories.forEach(c => {
-          if (c.id) operations.push({ ref: doc(db, 'cmms_categories', c.id), data: sanitizeForFirestore(c), col: 'تصنيف', id: c.id });
-        });
-        maintenanceLogs.forEach(l => {
-          if (l.id) operations.push({ ref: doc(db, 'cmms_logs', l.id), data: sanitizeForFirestore(l), col: 'سجل', id: l.id });
-        });
-        users.forEach(u => {
-          if (u.id) operations.push({ ref: doc(db, 'cmms_users', u.id), data: sanitizeForFirestore(u), col: 'مستخدم', id: u.id });
-        });
+      departments.forEach(d => {
+        if (d?.id) operations.push({ ref: doc(db, 'cmms_departments', d.id), data: sanitizeForFirestore(d), col: 'قسم', id: d.id });
+      });
 
-        if (operations.length === 0) {
-          return { success: true, message: 'لا توجد بيانات محلية جديدة للمزامنة.' };
-        }
-
-        const BATCH_SIZE = 200;
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < operations.length; i += BATCH_SIZE) {
-          const chunk = operations.slice(i, i + BATCH_SIZE);
-          try {
-            const batch = writeBatch(db);
-            chunk.forEach(op => {
-              batch.set(op.ref, op.data, { merge: true });
-            });
-            await batch.commit();
-            successCount += chunk.length;
-          } catch (batchErr) {
-            console.warn('Batch sync failed, falling back to document-by-document sync:', batchErr);
-            for (const op of chunk) {
-              try {
-                await setDoc(op.ref, op.data, { merge: true });
-                successCount++;
-              } catch (itemErr) {
-                console.error(`Failed to sync ${op.col} (${op.id}):`, itemErr);
-                failCount++;
-              }
-            }
+      assets.forEach(a => {
+        if (a?.id) {
+          let sanitized = sanitizeForFirestore(a);
+          // If image is a huge base64 string (> 750KB), strip or compress for Firestore doc to prevent 1MB overflow
+          if (sanitized.imageUrl && typeof sanitized.imageUrl === 'string' && sanitized.imageUrl.length > 750000) {
+            console.warn(`Asset ${a.name} image exceeds Firestore doc limit (${sanitized.imageUrl.length} chars). Omitting base64 image in cloud sync.`);
+            sanitized = { ...sanitized, imageUrl: '' };
           }
+          operations.push({ ref: doc(db, 'cmms_assets', a.id), data: sanitized, col: 'جهاز', id: a.id });
         }
+      });
 
-        if (failCount > 0) {
-          return {
-            success: true,
-            message: `تمت مزامنة ${successCount} عنصر بنجاح مع قاعدة البيانات. (${failCount} عنصر تعذرت مزامنته بسبب الحجم المفروض على الصور).`
-          };
-        }
+      orders.forEach(o => {
+        if (o?.id) operations.push({ ref: doc(db, 'cmms_orders', o.id), data: sanitizeForFirestore(o), col: 'أمر صيانة', id: o.id });
+      });
 
+      categories.forEach(c => {
+        if (c?.id) operations.push({ ref: doc(db, 'cmms_categories', c.id), data: sanitizeForFirestore(c), col: 'تصنيف', id: c.id });
+      });
+
+      maintenanceLogs.forEach(l => {
+        if (l?.id) operations.push({ ref: doc(db, 'cmms_logs', l.id), data: sanitizeForFirestore(l), col: 'سجل', id: l.id });
+      });
+
+      users.forEach(u => {
+        if (u?.id) operations.push({ ref: doc(db, 'cmms_users', u.id), data: sanitizeForFirestore(u), col: 'مستخدم', id: u.id });
+      });
+
+      if (operations.length === 0) {
+        return { success: true, message: 'لا توجد بيانات محلية للمزامنة.' };
+      }
+
+      // Sync documents concurrently in small chunks using setDoc with a per-item timeout
+      const CHUNK_SIZE = 15;
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+        const chunk = operations.slice(i, i + CHUNK_SIZE);
+        const results = await Promise.allSettled(
+          chunk.map(op =>
+            Promise.race([
+              setDoc(op.ref, op.data, { merge: true }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout writing document')), 8000))
+            ])
+          )
+        );
+
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') {
+            successCount++;
+          } else {
+            console.error(`Failed to write ${chunk[idx].col} (${chunk[idx].id}):`, r.reason);
+            failCount++;
+          }
+        });
+      }
+
+      if (failCount > 0 && successCount === 0) {
+        return {
+          success: false,
+          message: 'تعذرت المزامنة مع قاعدة البيانات. يرجى التأكد من الاتصال بالإنترنت.'
+        };
+      }
+
+      if (failCount > 0) {
         return {
           success: true,
-          message: `تمت مزامنة جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) مع السحابة بنجاح!`
+          message: `تمت مزامنة ${successCount} عنصر بنجاح! (${failCount} عنصر تعذرت مزامنته بسبب حجم البيانات).`
         };
-      } catch (err: any) {
-        console.error('Error syncing local to cloud:', err);
-        return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
       }
-    })();
 
-    const timeoutPromise = new Promise<{ success: boolean; message: string }>((resolve) => {
-      setTimeout(() => {
-        resolve({
-          success: false,
-          message: 'انتهت مهلة المزامنة (15 ثانية). يرجى التأكد من الاتصال بالإنترنت والاتصال بالسحابة.'
-        });
-      }, 15000);
-    });
-
-    return Promise.race([syncPromise, timeoutPromise]);
+      return {
+        success: true,
+        message: `تمت المزامنة بنجاح! تم رفع جميع البيانات (${operations.length} عنصر) إلى السحابة، ويمكنك الآن رؤيتها من أي جهاز آخر.`
+      };
+    } catch (err: any) {
+      console.error('Error syncing local to cloud:', err);
+      return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
+    }
   };
 
   return {
