@@ -99,103 +99,52 @@ export function useAppStore() {
     localStorage.setItem('cmms_logs', safeStringify(maintenanceLogs));
   }, [maintenanceLogs]);
 
+  // المزامنة الحية والتلقائية مع Cloud SQL PostgreSQL
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_users'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_users');
-        const initial = saved ? JSON.parse(saved) : INITIAL_USERS;
-        initial.forEach((u: UserAccount) => {
-          setDoc(doc(db, 'cmms_users', u.id), sanitizeForFirestore(u)).catch(() => {});
-        });
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as UserAccount);
-        setUsers(loaded);
-      }
-    }, handleSyncError('users'));
-    return () => unsub();
-  }, []);
+    const loadFromCloudSql = async () => {
+      try {
+        const res = await fetch('/api/sync/fetch-all');
+        if (res.ok) {
+          const result = await res.json();
+          if (result.success && result.data) {
+            const { departments: d, assets: a, orders: o, categories: c, maintenanceLogs: l, users: u } = result.data;
+            if (u && u.length > 0) setUsers(u);
+            if (d && d.length > 0) setDepartments(d);
+            if (a && a.length > 0) setAssets(a);
+            if (o && o.length > 0) setOrders(o);
+            if (c && c.length > 0) setCategories(c);
+            if (l && l.length > 0) setMaintenanceLogs(l);
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_departments'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_departments');
-        if (saved) {
-          const initial: Department[] = JSON.parse(saved);
-          initial.forEach(d => setDoc(doc(db, 'cmms_departments', d.id), sanitizeForFirestore(d)).catch(() => {}));
+            // Push local data if Cloud SQL was empty
+            if ((!a || a.length === 0) && (!d || d.length === 0) && assets.length > 0) {
+              fetch('/api/sync/push-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
+              }).catch(console.error);
+            }
+          }
         }
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as Department);
-        setDepartments(loaded);
+      } catch (err) {
+        console.warn('Cloud SQL initial load failed, using local storage:', err);
       }
-    }, handleSyncError('depts'));
-    return () => unsub();
+    };
+
+    loadFromCloudSql();
   }, []);
 
+  // المزامنة التلقائية مع Cloud SQL عند حدوث تغييرات
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_assets'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_assets');
-        if (saved) {
-          const initial: Asset[] = JSON.parse(saved);
-          initial.forEach(a => setDoc(doc(db, 'cmms_assets', a.id), sanitizeForFirestore(a)).catch(() => {}));
-        }
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as Asset);
-        setAssets(loaded);
-      }
-    }, handleSyncError('assets'));
-    return () => unsub();
-  }, []);
+    const timer = setTimeout(() => {
+      fetch('/api/sync/push-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
+      }).catch((err) => console.warn('Background Cloud SQL sync warning:', err));
+    }, 1200);
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_orders'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_orders');
-        if (saved) {
-          const initial: MaintenanceOrder[] = JSON.parse(saved);
-          initial.forEach(o => setDoc(doc(db, 'cmms_orders', o.id), sanitizeForFirestore(o)).catch(() => {}));
-        }
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as MaintenanceOrder);
-        loaded.sort((a, b) => Number(b.id) - Number(a.id));
-        setOrders(loaded);
-      }
-    }, handleSyncError('orders'));
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_categories'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_categories');
-        const initial = saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
-        initial.forEach((c: MaintenanceCategory) => {
-          setDoc(doc(db, 'cmms_categories', c.id), sanitizeForFirestore(c)).catch(() => {});
-        });
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as MaintenanceCategory);
-        setCategories(loaded);
-      }
-    }, handleSyncError('categories'));
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'cmms_logs'), (snapshot) => {
-      if (snapshot.empty) {
-        const saved = localStorage.getItem('cmms_logs');
-        if (saved) {
-          const initial: MaintenanceLogEntry[] = JSON.parse(saved);
-          initial.forEach(l => setDoc(doc(db, 'cmms_logs', l.id), sanitizeForFirestore(l)).catch(() => {}));
-        }
-      } else {
-        const loaded = snapshot.docs.map(d => d.data() as MaintenanceLogEntry);
-        loaded.sort((a, b) => Number(b.id) - Number(a.id));
-        setMaintenanceLogs(loaded);
-      }
-    }, handleSyncError('logs'));
-    return () => unsub();
-  }, []);
+    return () => clearTimeout(timer);
+  }, [departments, assets, orders, categories, maintenanceLogs, users]);
 
   // إدارة المستخدمين
   const addUser = (user: Omit<UserAccount, 'id'>) => {
@@ -912,94 +861,32 @@ export function useAppStore() {
 
   const syncLocalToCloud = async (): Promise<{ success: boolean; message: string }> => {
     try {
-      const operations: { ref: any; data: any; col: string; id: string }[] = [];
-
-      departments.forEach(d => {
-        if (d?.id) operations.push({ ref: doc(db, 'cmms_departments', d.id), data: sanitizeForFirestore(d), col: 'قسم', id: d.id });
-      });
-
-      assets.forEach(a => {
-        if (a?.id) {
-          let sanitized = sanitizeForFirestore(a);
-          // If image is a huge base64 string (> 750KB), strip or compress for Firestore doc to prevent 1MB overflow
-          if (sanitized.imageUrl && typeof sanitized.imageUrl === 'string' && sanitized.imageUrl.length > 750000) {
-            console.warn(`Asset ${a.name} image exceeds Firestore doc limit (${sanitized.imageUrl.length} chars). Omitting base64 image in cloud sync.`);
-            sanitized = { ...sanitized, imageUrl: '' };
-          }
-          operations.push({ ref: doc(db, 'cmms_assets', a.id), data: sanitized, col: 'جهاز', id: a.id });
-        }
-      });
-
-      orders.forEach(o => {
-        if (o?.id) operations.push({ ref: doc(db, 'cmms_orders', o.id), data: sanitizeForFirestore(o), col: 'أمر صيانة', id: o.id });
-      });
-
-      categories.forEach(c => {
-        if (c?.id) operations.push({ ref: doc(db, 'cmms_categories', c.id), data: sanitizeForFirestore(c), col: 'تصنيف', id: c.id });
-      });
-
-      maintenanceLogs.forEach(l => {
-        if (l?.id) operations.push({ ref: doc(db, 'cmms_logs', l.id), data: sanitizeForFirestore(l), col: 'سجل', id: l.id });
-      });
-
-      users.forEach(u => {
-        if (u?.id) operations.push({ ref: doc(db, 'cmms_users', u.id), data: sanitizeForFirestore(u), col: 'مستخدم', id: u.id });
-      });
-
-      if (operations.length === 0) {
+      const totalCount = departments.length + assets.length + orders.length + categories.length + maintenanceLogs.length + users.length;
+      if (totalCount === 0) {
         return { success: true, message: 'لا توجد بيانات محلية للمزامنة.' };
       }
 
-      // Sync documents in batches using writeBatch for fast performance (max 300 items per batch)
-      const BATCH_SIZE = 300;
-      let successCount = 0;
-      let failCount = 0;
+      const res = await fetch('/api/sync/push-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
+      });
 
-      for (let i = 0; i < operations.length; i += BATCH_SIZE) {
-        const chunk = operations.slice(i, i + BATCH_SIZE);
-        try {
-          const batch = writeBatch(db);
-          chunk.forEach(op => {
-            batch.set(op.ref, op.data, { merge: true });
-          });
-          await batch.commit();
-          successCount += chunk.length;
-        } catch (batchErr) {
-          console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back to individual writes:`, batchErr);
-          // Fallback to individual setDoc writes for this chunk
-          for (const op of chunk) {
-            try {
-              await setDoc(op.ref, op.data, { merge: true });
-              successCount++;
-            } catch (itemErr) {
-              console.error(`Failed to write ${op.col} (${op.id}):`, itemErr);
-              failCount++;
-            }
-          }
-        }
-      }
-
-      if (failCount > 0 && successCount === 0) {
-        return {
-          success: false,
-          message: 'تعذرت المزامنة مع قاعدة البيانات. يرجى التأكد من الاتصال بالإنترنت.'
-        };
-      }
-
-      if (failCount > 0) {
+      const data = await res.json();
+      if (res.ok && data.success) {
         return {
           success: true,
-          message: `تمت مزامنة ${successCount} عنصر بنجاح! (${failCount} عنصر تعذرت مزامنته بسبب حجم البيانات).`
+          message: `تمت المزامنة بنجاح مع قاعدة بيانات Cloud SQL (PostgreSQL)! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بلمشة عين وبدون أي حدود للعمليات.`,
+        };
+      } else {
+        return {
+          success: false,
+          message: 'فشلت المزامنة مع Cloud SQL: ' + (data.message || 'خطأ أثناء الاتصال بالخادم'),
         };
       }
-
-      return {
-        success: true,
-        message: `تمت المزامنة بنجاح! تم رفع جميع البيانات (${operations.length} عنصر) إلى السحابة، ويمكنك الآن رؤيتها من أي جهاز آخر.`
-      };
     } catch (err: any) {
-      console.error('Error syncing local to cloud:', err);
-      return { success: false, message: 'حدث خطأ أثناء المزامنة: ' + (err?.message || String(err)) };
+      console.error('Error syncing local to Cloud SQL:', err);
+      return { success: false, message: 'حدث خطأ أثناء المزامنة مع Cloud SQL: ' + (err?.message || String(err)) };
     }
   };
 
