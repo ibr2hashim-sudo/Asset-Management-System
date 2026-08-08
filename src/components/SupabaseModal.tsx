@@ -68,7 +68,12 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, d
     } catch (err: any) {
       console.error('Supabase test connection error:', err);
       setStatus('error');
-      setStatusMsg('فشل الاتصال بـ Supabase: ' + (err?.message || 'تأكد من صحة المفاتيح والنطاق'));
+      const msg = err?.message || String(err);
+      if (msg.includes('Failed to fetch') || msg.includes('FetchError') || msg.includes('ERR_NAME_NOT_RESOLVED')) {
+        setStatusMsg('تعذر الوصول إلى رابط المشروع (ERR_NAME_NOT_RESOLVED). يرجى التأكد من اختيار مشروع فعال على Supabase ونسخ Project URL الصحيح من (Project Settings -> API).');
+      } else {
+        setStatusMsg('فشل الاتصال بـ Supabase: ' + msg);
+      }
     }
   };
 
@@ -101,7 +106,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, d
 
       if (error) {
         if (error.code === '42P01') {
-          throw new Error('جدول cmms_data غير موجود بعد في قاعدة بيانات Supabase الخاصة بك. يمكنك إنشاؤه بنسخ أمر SQL أدناه وتشغيله في SQL Editor داخل Supabase.');
+          throw new Error('جدول cmms_data غير موجود بعد في قاعدة بيانات Supabase. يمكنك إنشاؤه بنسخ كود SQL الموضح أدناه وتشغيله بضغطة زر واحدة في SQL Editor داخل موقع Supabase.');
         }
         throw error;
       }
@@ -111,7 +116,12 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({ isOpen, onClose, d
     } catch (err: any) {
       console.error('Supabase sync error:', err);
       setStatus('error');
-      setStatusMsg('خطأ أثناء المزامنة: ' + (err?.message || String(err)));
+      const msg = err?.message || String(err);
+      if (msg.includes('Failed to fetch') || msg.includes('FetchError') || msg.includes('ERR_NAME_NOT_RESOLVED')) {
+        setStatusMsg('تعذر الوصول إلى النطاق (ERR_NAME_NOT_RESOLVED). يرجى التأكد من نسخ Project URL الصحيح لمشروعك من لوحة تحكم Supabase.');
+      } else {
+        setStatusMsg('خطأ أثناء المزامنة: ' + msg);
+      }
     } finally {
       setIsSyncing(false);
     }

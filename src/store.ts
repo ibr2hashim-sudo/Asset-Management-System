@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { db, rtdb } from './lib/firebase';
-import { getSupabaseClient } from './lib/supabase';
+import { getSupabaseClient, markSupabaseUnreachable } from './lib/supabase';
 import { ref, onValue, set } from 'firebase/database';
 import {
   collection,
@@ -182,7 +182,7 @@ export function useAppStore() {
         if (categories.length > 0) set(ref(rtdb, 'cmms_categories'), categories).catch(() => {});
         if (maintenanceLogs.length > 0) set(ref(rtdb, 'cmms_logs'), maintenanceLogs).catch(() => {});
 
-        // المزامنة مع Supabase
+        // المزامنة مع Supabase (مع معالجة استثناءات انقطاع النطاق)
         const supabase = getSupabaseClient();
         if (supabase) {
           const payload = [
@@ -193,12 +193,20 @@ export function useAppStore() {
             { key_name: 'maintenanceLogs', data_value: maintenanceLogs, updated_at: new Date().toISOString() },
             { key_name: 'users', data_value: users, updated_at: new Date().toISOString() },
           ];
-          supabase.from('cmms_data').upsert(payload, { onConflict: 'key_name' }).then(() => {}).catch(() => {});
+          supabase.from('cmms_data').upsert(payload, { onConflict: 'key_name' })
+            .then(({ error }) => {
+              if (error && (error.message?.includes('FetchError') || error.message?.includes('Failed to fetch'))) {
+                markSupabaseUnreachable();
+              }
+            })
+            .catch((err) => {
+              markSupabaseUnreachable();
+            });
         }
       } catch (e) {
         // safe fallback
       }
-    }, 1200);
+    }, 1500);
 
     return () => clearTimeout(timer);
   }, [users, departments, assets, orders, categories, maintenanceLogs]);
