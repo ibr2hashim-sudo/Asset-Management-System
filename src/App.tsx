@@ -7,7 +7,7 @@ import { Assets } from './pages/Assets';
 import { UsersPage } from './pages/UsersPage';
 import { Login } from './pages/Login';
 import { useAppStore } from './store';
-import { UserAccount } from './types';
+import { safeStringify } from './lib/utils';
 
 export function App() {
   const [user, setUser] = useState<UserAccount | null>(() => {
@@ -66,7 +66,7 @@ export function App() {
 
   useEffect(() => {
     if (user) {
-      localStorage.setItem('cmms_user', JSON.stringify(user));
+      localStorage.setItem('cmms_user', safeStringify(user));
     } else {
       localStorage.removeItem('cmms_user');
     }

@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import appletConfig from '../../firebase-applet-config.json';
+import { safeStringify } from './utils';
 
 const STORAGE_KEY = 'custom_firebase_config';
 
@@ -17,7 +18,7 @@ export function getCustomFirebaseConfig(): any | null {
 }
 
 export function saveCustomFirebaseConfig(config: any): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  localStorage.setItem(STORAGE_KEY, safeStringify(config));
   window.location.reload();
 }
 

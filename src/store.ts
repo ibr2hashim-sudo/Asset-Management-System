@@ -10,6 +10,7 @@ import {
   getDocs,
   writeBatch
 } from 'firebase/firestore';
+import { safeStringify, sanitizeForFirestore } from './lib/utils';
 import {
   Asset,
   MaintenanceOrder,
@@ -21,21 +22,6 @@ import {
   OrderStatus,
   normalizeDeptName
 } from './types';
-
-function sanitizeForFirestore(obj: any): any {
-  if (obj === null || obj === undefined) return null;
-  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
-  if (typeof obj === 'object') {
-    const clean: Record<string, any> = {};
-    for (const key of Object.keys(obj)) {
-      if (obj[key] !== undefined) {
-        clean[key] = sanitizeForFirestore(obj[key]);
-      }
-    }
-    return clean;
-  }
-  return obj;
-}
 
 const INITIAL_USERS: UserAccount[] = [
   {
@@ -90,27 +76,27 @@ export function useAppStore() {
   };
 
   useEffect(() => {
-    localStorage.setItem('cmms_users', JSON.stringify(users));
+    localStorage.setItem('cmms_users', safeStringify(users));
   }, [users]);
 
   useEffect(() => {
-    localStorage.setItem('cmms_departments', JSON.stringify(departments));
+    localStorage.setItem('cmms_departments', safeStringify(departments));
   }, [departments]);
 
   useEffect(() => {
-    localStorage.setItem('cmms_assets', JSON.stringify(assets));
+    localStorage.setItem('cmms_assets', safeStringify(assets));
   }, [assets]);
 
   useEffect(() => {
-    localStorage.setItem('cmms_orders', JSON.stringify(orders));
+    localStorage.setItem('cmms_orders', safeStringify(orders));
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem('cmms_categories', JSON.stringify(categories));
+    localStorage.setItem('cmms_categories', safeStringify(categories));
   }, [categories]);
 
   useEffect(() => {
-    localStorage.setItem('cmms_logs', JSON.stringify(maintenanceLogs));
+    localStorage.setItem('cmms_logs', safeStringify(maintenanceLogs));
   }, [maintenanceLogs]);
 
   useEffect(() => {
@@ -919,7 +905,7 @@ export function useAppStore() {
     localStorage.removeItem('cmms_departments');
     localStorage.removeItem('cmms_logs');
     localStorage.removeItem('cmms_categories');
-    localStorage.setItem('cmms_users', JSON.stringify(INITIAL_USERS));
+    localStorage.setItem('cmms_users', safeStringify(INITIAL_USERS));
 
     return { success: true, message: 'تم مسح جميع بيانات النظام بنجاح وإعادة ضبط المصنع' };
   };

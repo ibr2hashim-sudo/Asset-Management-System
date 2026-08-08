@@ -1,5 +1,7 @@
 import { getActiveFirebaseConfig } from './firebase';
 
+import { safeStringify } from './utils';
+
 const CLIENT_ID_STORAGE_KEY = 'custom_google_drive_client_id';
 
 export function getSavedClientId(): string | null {
@@ -60,14 +62,14 @@ export async function authorizeGoogleDrive(): Promise<string> {
 }
 
 export async function backupDataToGoogleDrive(accessToken: string, data: any, fileName = 'CMMS_Backup.json'): Promise<void> {
-  const fileContent = JSON.stringify(data, null, 2);
+  const fileContent = safeStringify(data, 2);
   const fileMetadata = {
     name: fileName,
     mimeType: 'application/json',
   };
 
   const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
+  form.append('metadata', new Blob([safeStringify(fileMetadata)], { type: 'application/json' }));
   form.append('file', new Blob([fileContent], { type: 'application/json' }));
 
   const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
