@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Cloud, Wrench, Shield, Home, Calendar, Package, LogOut, User, Users, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Cloud, Wrench, Shield, Home, Calendar, Package, LogOut, User, Users, AlertTriangle, RefreshCw, Database } from 'lucide-react';
 import { GoogleDriveModal } from './GoogleDriveModal';
+import { SupabaseModal } from './SupabaseModal';
 import { UserAccount } from '../types';
 
 interface LayoutProps {
@@ -25,6 +26,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onSyncCloud
 }) => {
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [resetMessage, setResetMessage] = useState<{ text: string; isError: boolean } | null>(null);
@@ -142,6 +144,15 @@ export const Layout: React.FC<LayoutProps> = ({
                 <span className="hidden md:inline">النسخ السحابي</span>
               </button>
 
+              <button
+                onClick={() => setIsSupabaseModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition border border-emerald-200"
+                title="ربط سحابة Supabase PostgreSQL"
+              >
+                <Database className="w-4 h-4 text-emerald-600" />
+                <span className="hidden lg:inline">Supabase</span>
+              </button>
+
               <div className="flex items-center gap-2 border-r border-gray-200 pr-3">
                 <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-bold">
                   <User className="w-4 h-4" />
@@ -208,6 +219,12 @@ export const Layout: React.FC<LayoutProps> = ({
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
         dataToBackup={dataToBackup}
+      />
+
+      <SupabaseModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
+        dataToSync={dataToBackup}
       />
 
       {isResetModalOpen && (

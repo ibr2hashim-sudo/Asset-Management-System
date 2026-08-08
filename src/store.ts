@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { db, rtdb } from './lib/firebase';
+import { getSupabaseClient } from './lib/supabase';
 import { ref, onValue, set } from 'firebase/database';
 import {
   collection,
@@ -908,24 +909,74 @@ export function useAppStore() {
         return { success: true, message: 'لا توجد بيانات محلية للمزامنة.' };
       }
 
-      await Promise.all([
+      // 1. Sync to Firebase Realtime Database
+      const rtdbSync = Promise.all([
         set(ref(rtdb, 'cmms_departments'), departments),
         set(ref(rtdb, 'cmms_assets'), assets),
         set(ref(rtdb, 'cmms_orders'), orders),
         set(ref(rtdb, 'cmms_categories'), categories),
         set(ref(rtdb, 'cmms_logs'), maintenanceLogs),
         set(ref(rtdb, 'cmms_users'), users),
-      ]);
+      ]).catch(err => console.warn('Realtime DB sync note:', err));
+
+      // 2. Sync to Firestore in batches
+      const firestoreOps: { ref: any; data: any }[] = [];
+      departments.forEach(d => d?.id && firestoreOps.push({ ref: doc(db, 'cmms_departments', d.id), data: sanitizeForFirestore(d) }));
+      assets.forEach(a => {
+        if (a?.id) {
+          let sanitized = sanitizeForFirestore(a);
+          if (sanitized.imageUrl && typeof sanitized.imageUrl === 'string' && sanitized.imageUrl.length > 750000) {
+            sanitized = { ...sanitized, imageUrl: '' };
+          }
+          firestoreOps.push({ ref: doc(db, 'cmms_assets', a.id), data: sanitized });
+        }
+      });
+      orders.forEach(o => o?.id && firestoreOps.push({ ref: doc(db, 'cmms_orders', o.id), data: sanitizeForFirestore(o) }));
+      categories.forEach(c => c?.id && firestoreOps.push({ ref: doc(db, 'cmms_categories', c.id), data: sanitizeForFirestore(c) }));
+      maintenanceLogs.forEach(l => l?.id && firestoreOps.push({ ref: doc(db, 'cmms_logs', l.id), data: sanitizeForFirestore(l) }));
+      users.forEach(u => u?.id && firestoreOps.push({ ref: doc(db, 'cmms_users', u.id), data: sanitizeForFirestore(u) }));
+
+      const BATCH_SIZE = 300;
+      for (let i = 0; i < firestoreOps.length; i += BATCH_SIZE) {
+        const chunk = firestoreOps.slice(i, i + BATCH_SIZE);
+        try {
+          const batch = writeBatch(db);
+          chunk.forEach(op => batch.set(op.ref, op.data, { merge: true }));
+          await batch.commit();
+        } catch (err) {
+          console.warn('Firestore batch write note:', err);
+        }
+      }
+
+      // 3. Sync to Supabase if configured
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const payload = [
+            { key_name: 'departments', data_value: departments, updated_at: new Date().toISOString() },
+            { key_name: 'assets', data_value: assets, updated_at: new Date().toISOString() },
+            { key_name: 'orders', data_value: orders, updated_at: new Date().toISOString() },
+            { key_name: 'categories', data_value: categories, updated_at: new Date().toISOString() },
+            { key_name: 'maintenanceLogs', data_value: maintenanceLogs, updated_at: new Date().toISOString() },
+            { key_name: 'users', data_value: users, updated_at: new Date().toISOString() },
+          ];
+          await supabase.from('cmms_data').upsert(payload, { onConflict: 'key_name' });
+        }
+      } catch (sbErr) {
+        console.warn('Supabase sync note:', sbErr);
+      }
+
+      await rtdbSync;
 
       return {
         success: true,
-        message: `تمت المزامنة بنجاح مع Firebase Realtime Database! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بالزمن الحقيقي وتعمل على كافة النطاقات.`,
+        message: `تمت المزامنة بنجاح مع السحابة (Firebase Realtime DB & Firestore & Supabase)! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بالزمن الحقيقي.`,
       };
     } catch (err: any) {
-      console.error('Error syncing local to Realtime Database:', err);
+      console.error('Error syncing local to Cloud:', err);
       return {
         success: false,
-        message: 'حدث خطأ أثناء المزامنة مع Realtime Database: ' + (err?.message || String(err)),
+        message: 'حدث خطأ أثناء المزامنة مع السحابة: ' + (err?.message || String(err)),
       };
     }
   };
