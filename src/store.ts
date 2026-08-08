@@ -104,7 +104,8 @@ export function useAppStore() {
     const loadFromCloudSql = async () => {
       try {
         const res = await fetch('/api/sync/fetch-all');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const result = await res.json();
           if (result.success && result.data) {
             const { departments: d, assets: a, orders: o, categories: c, maintenanceLogs: l, users: u } = result.data;
@@ -121,12 +122,12 @@ export function useAppStore() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-              }).catch(console.error);
+              }).catch(() => {});
             }
           }
         }
       } catch (err) {
-        console.warn('Cloud SQL initial load failed, using local storage:', err);
+        console.warn('Cloud SQL load unavailable, using local storage.');
       }
     };
 
@@ -140,7 +141,15 @@ export function useAppStore() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-      }).catch((err) => console.warn('Background Cloud SQL sync warning:', err));
+      })
+        .then(async (res) => {
+          const contentType = res.headers.get('content-type') || '';
+          if (!res.ok || !contentType.includes('application/json')) {
+            // Static host or backend unavailable
+            return;
+          }
+        })
+        .catch(() => {});
     }, 1200);
 
     return () => clearTimeout(timer);
@@ -872,16 +881,24 @@ export function useAppStore() {
         body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
       });
 
-      const data = await res.json();
-      if (res.ok && data.success) {
-        return {
-          success: true,
-          message: `تمت المزامنة بنجاح مع قاعدة بيانات Cloud SQL (PostgreSQL)! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بلمشة عين وبدون أي حدود للعمليات.`,
-        };
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.success) {
+          return {
+            success: true,
+            message: `تمت المزامنة بنجاح مع قاعدة بيانات Cloud SQL (PostgreSQL)! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بلمشة عين.`,
+          };
+        } else {
+          return {
+            success: false,
+            message: 'فشلت المزامنة: ' + (data.message || 'خطأ أثناء الاتصال بالخادم'),
+          };
+        }
       } else {
         return {
           success: false,
-          message: 'فشلت المزامنة مع Cloud SQL: ' + (data.message || 'خطأ أثناء الاتصال بالخادم'),
+          message: 'خادم Cloud SQL غير متوفر حالياً على هذا النطاق، يتم حفظ البيانات محلياً في المتصفح.',
         };
       }
     } catch (err: any) {
