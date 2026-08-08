@@ -950,30 +950,33 @@ export function useAppStore() {
         return { success: true, message: 'لا توجد بيانات محلية للمزامنة.' };
       }
 
-      // Sync documents concurrently in small chunks using setDoc with a per-item timeout
-      const CHUNK_SIZE = 15;
+      // Sync documents in batches using writeBatch for fast performance (max 300 items per batch)
+      const BATCH_SIZE = 300;
       let successCount = 0;
       let failCount = 0;
 
-      for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
-        const chunk = operations.slice(i, i + CHUNK_SIZE);
-        const results = await Promise.allSettled(
-          chunk.map(op =>
-            Promise.race([
-              setDoc(op.ref, op.data, { merge: true }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout writing document')), 8000))
-            ])
-          )
-        );
-
-        results.forEach((r, idx) => {
-          if (r.status === 'fulfilled') {
-            successCount++;
-          } else {
-            console.error(`Failed to write ${chunk[idx].col} (${chunk[idx].id}):`, r.reason);
-            failCount++;
+      for (let i = 0; i < operations.length; i += BATCH_SIZE) {
+        const chunk = operations.slice(i, i + BATCH_SIZE);
+        try {
+          const batch = writeBatch(db);
+          chunk.forEach(op => {
+            batch.set(op.ref, op.data, { merge: true });
+          });
+          await batch.commit();
+          successCount += chunk.length;
+        } catch (batchErr) {
+          console.warn(`Batch ${i / BATCH_SIZE + 1} failed, falling back to individual writes:`, batchErr);
+          // Fallback to individual setDoc writes for this chunk
+          for (const op of chunk) {
+            try {
+              await setDoc(op.ref, op.data, { merge: true });
+              successCount++;
+            } catch (itemErr) {
+              console.error(`Failed to write ${op.col} (${op.id}):`, itemErr);
+              failCount++;
+            }
           }
-        });
+        }
       }
 
       if (failCount > 0 && successCount === 0) {
