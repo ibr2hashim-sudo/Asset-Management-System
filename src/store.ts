@@ -171,7 +171,7 @@ export function useAppStore() {
     };
   }, []);
 
-  // المزامنة التلقائية مع Realtime Database عند حدوث تغييرات محلياً
+  // المزامنة التلقائية مع Realtime Database و Supabase عند حدوث تغييرات محلياً
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
@@ -181,6 +181,20 @@ export function useAppStore() {
         if (orders.length > 0) set(ref(rtdb, 'cmms_orders'), orders).catch(() => {});
         if (categories.length > 0) set(ref(rtdb, 'cmms_categories'), categories).catch(() => {});
         if (maintenanceLogs.length > 0) set(ref(rtdb, 'cmms_logs'), maintenanceLogs).catch(() => {});
+
+        // المزامنة مع Supabase
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const payload = [
+            { key_name: 'departments', data_value: departments, updated_at: new Date().toISOString() },
+            { key_name: 'assets', data_value: assets, updated_at: new Date().toISOString() },
+            { key_name: 'orders', data_value: orders, updated_at: new Date().toISOString() },
+            { key_name: 'categories', data_value: categories, updated_at: new Date().toISOString() },
+            { key_name: 'maintenanceLogs', data_value: maintenanceLogs, updated_at: new Date().toISOString() },
+            { key_name: 'users', data_value: users, updated_at: new Date().toISOString() },
+          ];
+          supabase.from('cmms_data').upsert(payload, { onConflict: 'key_name' }).then(() => {}).catch(() => {});
+        }
       } catch (e) {
         // safe fallback
       }
@@ -188,6 +202,27 @@ export function useAppStore() {
 
     return () => clearTimeout(timer);
   }, [users, departments, assets, orders, categories, maintenanceLogs]);
+
+  // دالة التعامل الآمن مع كتابات Firestore لمنع حدوث أخطاء توقف الحصة (Quota Exceeded)
+  const safeSetDoc = async (docRef: any, data: any, options?: any) => {
+    try {
+      if (options) {
+        await setDoc(docRef, data, options);
+      } else {
+        await setDoc(docRef, data);
+      }
+    } catch (err: any) {
+      console.warn('Firestore write fallback (Supabase & Local active):', err?.message || err);
+    }
+  };
+
+  const safeDeleteDoc = async (docRef: any) => {
+    try {
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.warn('Firestore delete fallback:', err?.message || err);
+    }
+  };
 
   // إدارة المستخدمين
   const addUser = (user: Omit<UserAccount, 'id'>) => {
@@ -197,7 +232,7 @@ export function useAppStore() {
     }
     const newUser: UserAccount = { ...user, id: Date.now().toString() };
     setUsers(prev => [...prev, newUser]);
-    setDoc(doc(db, 'cmms_users', newUser.id), sanitizeForFirestore(newUser)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_users', newUser.id), sanitizeForFirestore(newUser));
     return { success: true, message: 'تمت إضافة المستخدم بنجاح' };
   };
 
@@ -206,13 +241,13 @@ export function useAppStore() {
     const target = users.find(u => u.id === id);
     if (target) {
       const merged = { ...target, ...updated };
-      setDoc(doc(db, 'cmms_users', id), sanitizeForFirestore(merged), { merge: true }).catch(console.error);
+      safeSetDoc(doc(db, 'cmms_users', id), sanitizeForFirestore(merged), { merge: true });
     }
   };
 
   const deleteUser = (id: string) => {
     setUsers(prev => prev.filter(u => u.id !== id));
-    deleteDoc(doc(db, 'cmms_users', id)).catch(console.error);
+    safeDeleteDoc(doc(db, 'cmms_users', id));
   };
 
   // إدارة الأقسام
@@ -227,7 +262,7 @@ export function useAppStore() {
       subDepartments: subDepartments.length > 0 ? subDepartments : [cleanName]
     };
     setDepartments(prev => [...prev, newDept]);
-    setDoc(doc(db, 'cmms_departments', newDept.id), sanitizeForFirestore(newDept)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_departments', newDept.id), sanitizeForFirestore(newDept));
   };
 
   const updateDepartment = (id: string, newName: string) => {
@@ -241,13 +276,13 @@ export function useAppStore() {
     setAssets(updatedAssets);
     updatedAssets.forEach(a => {
       if (a.department === cleanName) {
-        setDoc(doc(db, 'cmms_assets', a.id), sanitizeForFirestore(a), { merge: true }).catch(console.error);
+        safeSetDoc(doc(db, 'cmms_assets', a.id), sanitizeForFirestore(a), { merge: true });
       }
     });
 
     const updatedDept = { ...dept, name: cleanName };
     setDepartments(prev => prev.map(d => d.id === id ? updatedDept : d));
-    setDoc(doc(db, 'cmms_departments', id), sanitizeForFirestore(updatedDept), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_departments', id), sanitizeForFirestore(updatedDept), { merge: true });
   };
 
   const deleteDepartment = (id: string) => {
@@ -258,7 +293,7 @@ export function useAppStore() {
       return { success: false, message: 'لا يمكنك مسح القسم بسبب وجود أصول ومعدات مسجلة بداخله' };
     }
     setDepartments(prev => prev.filter(d => d.id !== id));
-    deleteDoc(doc(db, 'cmms_departments', id)).catch(console.error);
+    safeDeleteDoc(doc(db, 'cmms_departments', id));
     return { success: true, message: 'تم مسح القسم بنجاح' };
   };
 
@@ -272,7 +307,7 @@ export function useAppStore() {
     const updatedSubs = [...dept.subDepartments, cleanSub];
     const updatedDept = { ...dept, subDepartments: updatedSubs };
     setDepartments(prev => prev.map(d => d.id === deptId ? updatedDept : d));
-    setDoc(doc(db, 'cmms_departments', deptId), sanitizeForFirestore(updatedDept), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_departments', deptId), sanitizeForFirestore(updatedDept), { merge: true });
   };
 
   const deleteSubDepartment = (deptId: string, subName: string) => {
@@ -287,7 +322,7 @@ export function useAppStore() {
     const updatedSubs = dept.subDepartments.filter(s => normalizeDeptName(s) !== normalizeDeptName(subName));
     const updatedDept = { ...dept, subDepartments: updatedSubs };
     setDepartments(prev => prev.map(d => d.id === deptId ? updatedDept : d));
-    setDoc(doc(db, 'cmms_departments', deptId), sanitizeForFirestore(updatedDept), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_departments', deptId), sanitizeForFirestore(updatedDept), { merge: true });
     return { success: true, message: 'تم مسح القسم الفرعي بنجاح' };
   };
 
@@ -304,7 +339,7 @@ export function useAppStore() {
       difference
     };
     setAssets(prev => [newAsset, ...prev]);
-    setDoc(doc(db, 'cmms_assets', newAsset.id), sanitizeForFirestore(newAsset)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_assets', newAsset.id), sanitizeForFirestore(newAsset));
     return { success: true, message: 'تمت إضافة الجهاز بنجاح' };
   };
 
@@ -316,12 +351,12 @@ export function useAppStore() {
     const updatedAsset = { ...merged, difference: diff };
 
     setAssets(prev => prev.map(a => a.id === id ? updatedAsset : a));
-    setDoc(doc(db, 'cmms_assets', id), sanitizeForFirestore(updatedAsset), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_assets', id), sanitizeForFirestore(updatedAsset), { merge: true });
   };
 
   const deleteAsset = (id: string) => {
     setAssets(prev => prev.filter(a => a.id !== id));
-    deleteDoc(doc(db, 'cmms_assets', id)).catch(console.error);
+    safeDeleteDoc(doc(db, 'cmms_assets', id));
   };
 
   // استيراد مجموعة صور وربطها بالـ customId أو اسم الجهاز أو الرقم التسلسلي
@@ -401,7 +436,7 @@ export function useAppStore() {
           });
           updatedAssets[assetIndex] = { ...updatedAssets[assetIndex], image: base64 };
           matched++;
-          setDoc(doc(db, 'cmms_assets', updatedAssets[assetIndex].id), sanitizeForFirestore(updatedAssets[assetIndex]), { merge: true }).catch(console.error);
+          safeSetDoc(doc(db, 'cmms_assets', updatedAssets[assetIndex].id), sanitizeForFirestore(updatedAssets[assetIndex]), { merge: true });
         } catch (err) {
           failed++;
           failedReasons.push(`الصورة (${file.name}): فشل في قراءة الملف`);
@@ -447,7 +482,7 @@ export function useAppStore() {
       supervisorName: order.supervisorName
     };
     setOrders(prev => [newOrder, ...prev]);
-    setDoc(doc(db, 'cmms_orders', newOrder.id), sanitizeForFirestore(newOrder)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_orders', newOrder.id), sanitizeForFirestore(newOrder));
   };
 
   const receiveOrder = (orderId: string, technicianName: string) => {
@@ -461,7 +496,7 @@ export function useAppStore() {
       technician: technicianName
     };
     setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
-    setDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(updated), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(updated), { merge: true });
   };
 
   const updateOrderDetails = (orderId: string, updated: Partial<MaintenanceOrder>) => {
@@ -469,7 +504,7 @@ export function useAppStore() {
     if (!target) return;
     const merged = { ...target, ...updated };
     setOrders(prev => prev.map(o => o.id === orderId ? merged : o));
-    setDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(merged), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(merged), { merge: true });
   };
 
   const completeOrder = (orderId: string, technicianName: string) => {
@@ -483,12 +518,12 @@ export function useAppStore() {
       technician: technicianName
     };
     setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
-    setDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(updated), { merge: true }).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_orders', orderId), sanitizeForFirestore(updated), { merge: true });
   };
 
   const deleteOrder = (orderId: string) => {
     setOrders(prev => prev.filter(o => o.id !== orderId));
-    deleteDoc(doc(db, 'cmms_orders', orderId)).catch(console.error);
+    safeDeleteDoc(doc(db, 'cmms_orders', orderId));
   };
 
   // فئات/تصنيفات المتابعة
@@ -501,19 +536,19 @@ export function useAppStore() {
       defaultIntervalMeter
     };
     setCategories(prev => [...prev, newCat]);
-    setDoc(doc(db, 'cmms_categories', newCat.id), sanitizeForFirestore(newCat)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_categories', newCat.id), sanitizeForFirestore(newCat));
   };
 
   // سجلات المتابعة الدورية
   const addMaintenanceLog = (entry: Omit<MaintenanceLogEntry, 'id'>) => {
     const newEntry: MaintenanceLogEntry = { ...entry, id: Date.now().toString() };
     setMaintenanceLogs(prev => [newEntry, ...prev]);
-    setDoc(doc(db, 'cmms_logs', newEntry.id), sanitizeForFirestore(newEntry)).catch(console.error);
+    safeSetDoc(doc(db, 'cmms_logs', newEntry.id), sanitizeForFirestore(newEntry));
   };
 
   const deleteMaintenanceLog = (id: string) => {
     setMaintenanceLogs(prev => prev.filter(l => l.id !== id));
-    deleteDoc(doc(db, 'cmms_logs', id)).catch(console.error);
+    safeDeleteDoc(doc(db, 'cmms_logs', id));
   };
 
   // التصدير إلى Excel
