@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getDatabase } from 'firebase/database';
 import appletConfig from '../../firebase-applet-config.json';
 import { safeStringify } from './utils';
 
@@ -40,4 +41,9 @@ const dbId = activeConfig.firestoreDatabaseId && activeConfig.firestoreDatabaseI
   : undefined;
 
 export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
+
+// Realtime Database setup
+const rtdbUrl = activeConfig.databaseURL || `https://${activeConfig.projectId}-default-rtdb.firebaseio.com`;
+export const rtdb = getDatabase(app, rtdbUrl);
+
 

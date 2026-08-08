@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { db } from './lib/firebase';
+import { db, rtdb } from './lib/firebase';
+import { ref, onValue, set } from 'firebase/database';
 import {
   collection,
   doc,
@@ -99,63 +100,93 @@ export function useAppStore() {
     localStorage.setItem('cmms_logs', safeStringify(maintenanceLogs));
   }, [maintenanceLogs]);
 
-  // المزامنة الحية والتلقائية مع Cloud SQL PostgreSQL عند توفر الخادم
-  const [isBackendAvailable, setIsBackendAvailable] = useState<boolean | null>(null);
-
+  // المزامنة الحية المباشرة مع Firebase Realtime Database
   useEffect(() => {
-    const checkBackendAndLoad = async () => {
-      try {
-        const healthRes = await fetch('/api/health');
-        const contentType = healthRes.headers.get('content-type') || '';
-        if (healthRes.ok && contentType.includes('application/json')) {
-          setIsBackendAvailable(true);
-          const res = await fetch('/api/sync/fetch-all');
-          if (res.ok) {
-            const result = await res.json();
-            if (result.success && result.data) {
-              const { departments: d, assets: a, orders: o, categories: c, maintenanceLogs: l, users: u } = result.data;
-              if (u && u.length > 0) setUsers(u);
-              if (d && d.length > 0) setDepartments(d);
-              if (a && a.length > 0) setAssets(a);
-              if (o && o.length > 0) setOrders(o);
-              if (c && c.length > 0) setCategories(c);
-              if (l && l.length > 0) setMaintenanceLogs(l);
-
-              // Push local data if Cloud SQL was empty
-              if ((!a || a.length === 0) && (!d || d.length === 0) && assets.length > 0) {
-                fetch('/api/sync/push-all', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-                }).catch(() => {});
-              }
-            }
-          }
-        } else {
-          setIsBackendAvailable(false);
+    let unsubs: (() => void)[] = [];
+    try {
+      const usersRef = ref(rtdb, 'cmms_users');
+      unsubs.push(onValue(usersRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = Array.isArray(val) ? val : Object.values(val);
+          setUsers(loaded as UserAccount[]);
         }
-      } catch (err) {
-        setIsBackendAvailable(false);
-      }
-    };
+      }, (err) => console.warn('Realtime DB users sync warning:', err)));
 
-    checkBackendAndLoad();
+      const deptsRef = ref(rtdb, 'cmms_departments');
+      unsubs.push(onValue(deptsRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = Array.isArray(val) ? val : Object.values(val);
+          setDepartments(loaded as Department[]);
+        }
+      }, (err) => console.warn('Realtime DB depts sync warning:', err)));
+
+      const assetsRef = ref(rtdb, 'cmms_assets');
+      unsubs.push(onValue(assetsRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = Array.isArray(val) ? val : Object.values(val);
+          setAssets(loaded as Asset[]);
+        }
+      }, (err) => console.warn('Realtime DB assets sync warning:', err)));
+
+      const ordersRef = ref(rtdb, 'cmms_orders');
+      unsubs.push(onValue(ordersRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = (Array.isArray(val) ? val : Object.values(val)) as MaintenanceOrder[];
+          loaded.sort((a, b) => Number(b.id) - Number(a.id));
+          setOrders(loaded);
+        }
+      }, (err) => console.warn('Realtime DB orders sync warning:', err)));
+
+      const catsRef = ref(rtdb, 'cmms_categories');
+      unsubs.push(onValue(catsRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = Array.isArray(val) ? val : Object.values(val);
+          setCategories(loaded as MaintenanceCategory[]);
+        }
+      }, (err) => console.warn('Realtime DB categories sync warning:', err)));
+
+      const logsRef = ref(rtdb, 'cmms_logs');
+      unsubs.push(onValue(logsRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const loaded = (Array.isArray(val) ? val : Object.values(val)) as MaintenanceLogEntry[];
+          loaded.sort((a, b) => Number(b.id) - Number(a.id));
+          setMaintenanceLogs(loaded);
+        }
+      }, (err) => console.warn('Realtime DB logs sync warning:', err)));
+    } catch (err) {
+      console.warn('Realtime DB setup warning:', err);
+    }
+
+    return () => {
+      unsubs.forEach(unsub => {
+        try { unsub(); } catch (e) {}
+      });
+    };
   }, []);
 
-  // المزامنة التلقائية مع Cloud SQL عند حدوث تغييرات (فقط إذا كان خادم API متوفراً)
+  // المزامنة التلقائية مع Realtime Database عند حدوث تغييرات محلياً
   useEffect(() => {
-    if (!isBackendAvailable) return;
-
     const timer = setTimeout(() => {
-      fetch('/api/sync/push-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-      }).catch(() => {});
-    }, 1500);
+      try {
+        if (users.length > 0) set(ref(rtdb, 'cmms_users'), users).catch(() => {});
+        if (departments.length > 0) set(ref(rtdb, 'cmms_departments'), departments).catch(() => {});
+        if (assets.length > 0) set(ref(rtdb, 'cmms_assets'), assets).catch(() => {});
+        if (orders.length > 0) set(ref(rtdb, 'cmms_orders'), orders).catch(() => {});
+        if (categories.length > 0) set(ref(rtdb, 'cmms_categories'), categories).catch(() => {});
+        if (maintenanceLogs.length > 0) set(ref(rtdb, 'cmms_logs'), maintenanceLogs).catch(() => {});
+      } catch (e) {
+        // safe fallback
+      }
+    }, 1200);
 
     return () => clearTimeout(timer);
-  }, [departments, assets, orders, categories, maintenanceLogs, users, isBackendAvailable]);
+  }, [users, departments, assets, orders, categories, maintenanceLogs]);
 
   // إدارة المستخدمين
   const addUser = (user: Omit<UserAccount, 'id'>) => {
@@ -877,35 +908,25 @@ export function useAppStore() {
         return { success: true, message: 'لا توجد بيانات محلية للمزامنة.' };
       }
 
-      const res = await fetch('/api/sync/push-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ departments, assets, orders, categories, maintenanceLogs, users }),
-      });
+      await Promise.all([
+        set(ref(rtdb, 'cmms_departments'), departments),
+        set(ref(rtdb, 'cmms_assets'), assets),
+        set(ref(rtdb, 'cmms_orders'), orders),
+        set(ref(rtdb, 'cmms_categories'), categories),
+        set(ref(rtdb, 'cmms_logs'), maintenanceLogs),
+        set(ref(rtdb, 'cmms_users'), users),
+      ]);
 
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.success) {
-          return {
-            success: true,
-            message: `تمت المزامنة بنجاح مع قاعدة بيانات Cloud SQL (PostgreSQL)! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بلمشة عين.`,
-          };
-        } else {
-          return {
-            success: false,
-            message: 'فشلت المزامنة: ' + (data.message || 'خطأ أثناء الاتصال بالخادم'),
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'خادم Cloud SQL غير متوفر حالياً على هذا النطاق، يتم حفظ البيانات محلياً في المتصفح.',
-        };
-      }
+      return {
+        success: true,
+        message: `تمت المزامنة بنجاح مع Firebase Realtime Database! تم رفع جميع البيانات (${assets.length} جهاز، ${departments.length} قسم، ${orders.length} أمر) بالزمن الحقيقي وتعمل على كافة النطاقات.`,
+      };
     } catch (err: any) {
-      console.error('Error syncing local to Cloud SQL:', err);
-      return { success: false, message: 'حدث خطأ أثناء المزامنة مع Cloud SQL: ' + (err?.message || String(err)) };
+      console.error('Error syncing local to Realtime Database:', err);
+      return {
+        success: false,
+        message: 'حدث خطأ أثناء المزامنة مع Realtime Database: ' + (err?.message || String(err)),
+      };
     }
   };
 
